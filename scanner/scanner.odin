@@ -8,14 +8,12 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
-Procedure_Type :: enum
-{
+Procedure_Type :: enum {
   Request,
   Event,
 }
 
-Procedure :: struct
-{
+Procedure :: struct {
   name:          string,
   description:   string,
   type:          Procedure_Type,
@@ -28,21 +26,18 @@ Procedure :: struct
   all_null:      bool,
 }
 
-Enum_Entry :: struct
-{
+Enum_Entry :: struct {
   name:  string,
   value: string,
 }
 
-Enumeration :: struct
-{
+Enumeration :: struct {
   name:        string,
   description: string,
   entries:     []Enum_Entry,
 }
 
-Interface :: struct
-{
+Interface :: struct {
   name:            string,
   unstripped_name: string,
   description:     string,
@@ -52,15 +47,13 @@ Interface :: struct
   version:         string,
 }
 
-Protocol :: struct
-{
+Protocol :: struct {
   name:            string,
   interfaces:      []Interface,
   null_run_length: int,
 }
 
-Argument_Type :: enum
-{
+Argument_Type :: enum {
   New_Id,
   Int,
   Unsigned,
@@ -72,8 +65,7 @@ Argument_Type :: enum
   Enum,
 }
 
-Argument :: struct
-{
+Argument :: struct {
   name:           string,
   type:           Argument_Type,
   protocol_type:  Argument_Type,
@@ -83,22 +75,18 @@ Argument :: struct
 
   // TODO: summary
 }
-get_description :: proc(doc: ^xml.Document, id: u32) -> string
-{
+get_description :: proc(doc: ^xml.Document, id: u32) -> string {
   desc_id, found := find_child(doc, id, "description")
-  if !found
-  {
+  if !found {
     return ""
   }
   values := doc.elements[desc_id].value
-  if len(values) == 0
-  {
+  if len(values) == 0 {
     return ""
   }
   return values[0].(string)
 }
-get_name :: proc(doc: ^xml.Document, id: u32) -> string
-{
+get_name :: proc(doc: ^xml.Document, id: u32) -> string {
   name, found := find_attr(doc, id, "name"); assert(found)
   return name
 }
@@ -110,8 +98,7 @@ iterate_child :: proc(
 ) -> (
   id: u32,
   ok: bool,
-)
-{
+) {
   @(static) index_map: map[u32]int
   id, ok = find_child(doc, parent_id, ident, index_map[parent_id])
   if !ok do index_map[parent_id] = 0
@@ -119,10 +106,8 @@ iterate_child :: proc(
   return
 }
 
-get_argument_type :: proc(text: string) -> (type: Argument_Type)
-{
-  switch text
-  {
+get_argument_type :: proc(text: string) -> (type: Argument_Type) {
+  switch text {
   case "new_id":
     type = .New_Id
   case "int":
@@ -146,8 +131,7 @@ get_argument_type :: proc(text: string) -> (type: Argument_Type)
 find_attr :: xml.find_attribute_val_by_key
 find_child :: xml.find_child_by_ident
 
-after_underscore :: proc(s: string) -> string
-{
+after_underscore :: proc(s: string) -> string {
   index := strings.index_byte(s, '_')
   return s[index + 1:]
 }
@@ -158,10 +142,8 @@ parse_procedure :: proc(
   type: Procedure_Type,
   interface_name: string,
   protocol: ^Protocol,
-) -> Procedure
-{
-  procedure := Procedure \
-  {
+) -> Procedure {
+  procedure := Procedure {
     name        = get_name(doc, id),
     description = get_description(doc, id),
     type        = type,
@@ -176,21 +158,17 @@ parse_procedure :: proc(
 
   args: [dynamic]Argument
   log.debug("\t", "Event:", procedure.name)
-  for arg_id in iterate_child(doc, id, "arg")
-  {
-    arg := Argument \
-    {
+  for arg_id in iterate_child(doc, id, "arg") {
+    arg := Argument {
       name = get_name(doc, arg_id),
     }
     nullable_name, nullable_found := find_attr(doc, arg_id, "allow-null")
     type_name, type_found := find_attr(doc, arg_id, "type")
     enum_name, enum_found := find_attr(doc, arg_id, "enum")
-    if enum_found
-    {
+    if enum_found {
       arg.type = .Enum
       arg.protocol_type = get_argument_type(type_name)
-      if strings.contains_rune(enum_name, '.')
-      {
+      if strings.contains_rune(enum_name, '.') {
         // wl_output.transform -> output_transform
         enum_name, _ = strings.replace_all(
           after_underscore(enum_name),
@@ -198,48 +176,36 @@ parse_procedure :: proc(
           "_",
         )
         arg.enum_name = enum_name
-      }
-       else
-      {
+      } else {
         arg.enum_name = fmt.aprintf("%v_%v", interface_name, enum_name)
       }
     }
     arg.nullable = nullable_found && nullable_name == "true"
     interface_name, interface_found := find_attr(doc, arg_id, "interface")
-    if interface_found
-    {
+    if interface_found {
       if protocol.name != "wayland" &&
-         strings.starts_with(interface_name, "wl_")
-      {
+         strings.starts_with(interface_name, "wl_") {
         raw_data(interface_name)[2] = '.'
-      }
-       else
-      {
+      } else {
         interface_name = after_underscore(interface_name)
       }
 
       arg.interface_name = interface_name
     }
-    if !enum_found
-    {
+    if !enum_found {
       arg.type = get_argument_type(type_name)
       arg.protocol_type = arg.type
     }
 
     log.debug("\t\t", "Argument:", arg.name)
-    if (arg.type == .New_Id || arg.type == .Object) && interface_found
-    {
+    if (arg.type == .New_Id || arg.type == .Object) && interface_found {
       procedure.all_null = false
     }
 
-    if arg.type == .New_Id && interface_found && type == .Request
-    {
+    if arg.type == .New_Id && interface_found && type == .Request {
       procedure.ret = arg
-    }
-     else
-    {
-      if arg.type == .New_Id
-      {
+    } else {
+      if arg.type == .New_Id {
         procedure.new_id = arg
       }
       append(&args, arg)
@@ -250,11 +216,9 @@ parse_procedure :: proc(
   return procedure
 }
 
-get_procedure_signature :: proc(procedure: Procedure) -> string
-{
+get_procedure_signature :: proc(procedure: Procedure) -> string {
   sb: strings.Builder
-  arg_signs := #partial [Argument_Type]string \
-  {
+  arg_signs := #partial [Argument_Type]string {
     .New_Id   = "n",
     .Int      = "i",
     .Unsigned = "u",
@@ -264,18 +228,14 @@ get_procedure_signature :: proc(procedure: Procedure) -> string
     .Array    = "a",
     .Fd       = "h",
   }
-  if procedure.since != nil
-  {
+  if procedure.since != nil {
     fmt.sbprint(&sb, procedure.since.?)
   }
-  if procedure.ret != nil
-  {
+  if procedure.ret != nil {
     fmt.sbprint(&sb, "n")
   }
-  for arg in procedure.args
-  {
-    if (arg.type == .String || arg.type == .Object) && arg.nullable
-    {
+  for arg in procedure.args {
+    if (arg.type == .String || arg.type == .Object) && arg.nullable {
       fmt.sbprint(&sb, "?")
     }
     if arg.type == .New_Id && arg.interface_name == "" do fmt.sbprint(&sb, "su")
@@ -288,13 +248,11 @@ get_procedures_text :: proc(
   procedures: []Procedure,
   var_name: string,
   protocol_name: string,
-) -> string
-{
+) -> string {
   sb: strings.Builder
   fmt.sbprintln(&sb, "@(private)")
   fmt.sbprintfln(&sb, "%v := []message {{", var_name)
-  for procedure in procedures
-  {
+  for procedure in procedures {
     fmt.sbprint(&sb, "\t{")
     fmt.sbprintf(
       &sb,
@@ -310,24 +268,19 @@ get_procedures_text :: proc(
 
   return strings.to_string(sb)
 }
-get_argument_text :: proc(arg: Argument, force_name := false) -> string
-{
+get_argument_text :: proc(arg: Argument, force_name := false) -> string {
   sb: strings.Builder
   forward_text: string
   ret := false
-  switch arg.type
-  {
+  switch arg.type {
   case .Object:
     forward_text =
       fmt.aprintf("^%v", arg.interface_name) if arg.interface_name != "" else "rawptr"
   case .New_Id:
-    if arg.interface_name != ""
-    {
+    if arg.interface_name != "" {
       forward_text = fmt.aprintf("^%v", arg.interface_name)
       ret = true
-    }
-     else
-    {
+    } else {
       forward_text = "^interface, version: uint"
     }
   case .Enum:
@@ -349,11 +302,9 @@ get_argument_text :: proc(arg: Argument, force_name := false) -> string
 }
 
 // @Incomplete: error checking
-parse_file :: proc(filename: string) -> Protocol
-{
+parse_file :: proc(filename: string) -> Protocol {
   doc, err := xml.load_from_file(filename)
-  if err != nil
-  {
+  if err != nil {
     fmt.println("Error reading file:", filename)
     os.exit(1)
   }
@@ -362,8 +313,7 @@ parse_file :: proc(filename: string) -> Protocol
   name, found := find_attr(doc, 0, "name"); assert(found)
   protocol.name = name
   interfaces: [dynamic]Interface
-  for interface_id in iterate_child(doc, 0, "interface")
-  {
+  for interface_id in iterate_child(doc, 0, "interface") {
     interface_name := get_name(doc, interface_id)
     // Deprecated interfaces
     if interface_name == "wl_shell" || interface_name == "wl_shell_surface" do continue
@@ -382,8 +332,7 @@ parse_file :: proc(filename: string) -> Protocol
     enums: [dynamic]Enumeration
 
     log.debug(interface.name)
-    for request_id in iterate_child(doc, interface_id, "request")
-    {
+    for request_id in iterate_child(doc, interface_id, "request") {
       request := parse_procedure(
         doc,
         request_id,
@@ -393,8 +342,7 @@ parse_file :: proc(filename: string) -> Protocol
       )
       append(&requests, request)
     }
-    for event_id in iterate_child(doc, interface_id, "event")
-    {
+    for event_id in iterate_child(doc, interface_id, "event") {
       event := parse_procedure(
         doc,
         event_id,
@@ -404,29 +352,23 @@ parse_file :: proc(filename: string) -> Protocol
       )
       append(&events, event)
     }
-    for enum_id in iterate_child(doc, interface_id, "enum")
-    {
-      enumeration := Enumeration \
-      {
+    for enum_id in iterate_child(doc, interface_id, "enum") {
+      enumeration := Enumeration {
         name        = get_name(doc, enum_id),
         description = get_description(doc, enum_id),
       }
       log.debug("\t", "Enum:", enumeration.name)
       entries: [dynamic]Enum_Entry
-      for entry_id in iterate_child(doc, enum_id, "entry")
-      {
+      for entry_id in iterate_child(doc, enum_id, "entry") {
         value, found := find_attr(doc, entry_id, "value")
-        if !found
-        {
+        if !found {
           // @Incomplete
         }
         name = get_name(doc, entry_id)
-        if name[0] <= '9' && name[0] >= '0'
-        {
+        if name[0] <= '9' && name[0] >= '0' {
           name = strings.concatenate({"_", name})
         }
-        entry := Enum_Entry \
-        {
+        entry := Enum_Entry {
           name  = name,
           value = value,
         }
@@ -442,14 +384,10 @@ parse_file :: proc(filename: string) -> Protocol
     interface.enums = enums[:]
     append(&interfaces, interface)
   }
-  for interface in interfaces
-  {
-    for &request in interface.requests
-    {
-      for other in interfaces
-      {
-        if other.name == fmt.aprintf("%v_%v", interface.name, request.name)
-        {
+  for interface in interfaces {
+    for &request in interface.requests {
+      for other in interfaces {
+        if other.name == fmt.aprintf("%v_%v", interface.name, request.name) {
           // Odin, unlike c, doesn't allow a procedure and a struct to have the same name
           request.name = fmt.aprintf("get_%v", request.name)
         }
@@ -464,26 +402,22 @@ generate_code :: proc(
   protocol: Protocol,
   package_name, output_path, wayland_dir: string,
   emit_libwayland: bool,
-) -> string
-{
+) -> string {
   sb: strings.Builder
   strings.write_string(&sb, "#+build linux\n")
   fmt.sbprintln(&sb, "package", package_name)
   fmt.sbprintln(&sb, "@(private)")
   fmt.sbprintfln(&sb, "%v_types := []^interface {{", protocol.name)
-  for i in 0 ..< protocol.null_run_length
-  {
+  for i in 0 ..< protocol.null_run_length {
     fmt.sbprintln(&sb, "\tnil,")
   }
-  for interface in protocol.interfaces
-  {
+  for interface in protocol.interfaces {
     generate_types(&sb, interface.requests, protocol)
     generate_types(&sb, interface.events, protocol)
   }
   fmt.sbprintln(&sb, "}")
 
-  for interface in protocol.interfaces
-  {
+  for interface in protocol.interfaces {
     fmt.sbprintln(&sb, "/*", interface.description, "*/")
     fmt.sbprintfln(&sb, "%v :: struct {{}}", interface.name)
     fmt.sbprintfln(
@@ -501,8 +435,7 @@ generate_code :: proc(
     has_destroy := false
     opcode := 0
 
-    for request in interface.requests
-    {
+    for request in interface.requests {
       has_ret := request.ret != nil
       has_new_id := request.new_id != nil
       fmt.sbprintln(&sb, "/*", request.description, "*/")
@@ -541,22 +474,19 @@ generate_code :: proc(
       fmt.sbprint(&sb, ", 1" if request.is_destructor else ", 0")
 
       if has_ret do fmt.sbprint(&sb, ", nil")
-      for arg in request.args
-      {
+      for arg in request.args {
         fmt.sbprintf(&sb, ", %v_", arg.name)
         if arg.type == .New_Id do fmt.sbprint(&sb, ".name, version")
       }
       fmt.sbprintln(&sb, ")")
-      if has_ret || has_new_id
-      {
+      if has_ret || has_new_id {
         fmt.sbprintfln(&sb, "\treturn cast(%v)ret", return_type)
       }
       fmt.sbprintln(&sb, "}\n")
       if request.name == "destroy" do has_destroy = true
       opcode += 1
     }
-    if !has_destroy && interface.name != "display"
-    {
+    if !has_destroy && interface.name != "display" {
       fmt.sbprintfln(
         &sb,
         `%[0]v_destroy :: proc "contextless" (%[0]v_: ^%[0]v) {{
@@ -566,11 +496,9 @@ generate_code :: proc(
         interface.name,
       )
     }
-    if len(interface.events) > 0
-    {
+    if len(interface.events) > 0 {
       fmt.sbprintfln(&sb, "%v_listener :: struct {{", interface.name)
-      for event in interface.events
-      {
+      for event in interface.events {
         fmt.sbprintln(&sb, "/*", event.description, "*/")
 
         fmt.sbprint(&sb, "\t")
@@ -581,8 +509,7 @@ generate_code :: proc(
           interface.name,
           interface.name,
         )
-        for arg, i in event.args
-        {
+        for arg, i in event.args {
           fmt.sbprintf(&sb, ", %v", get_argument_text(arg, true))
 
         }
@@ -603,19 +530,16 @@ generate_code :: proc(
       fmt.sbprintln(&sb, "}")
 
     }
-    for enumeration in interface.enums
-    {
+    for enumeration in interface.enums {
       fmt.sbprintln(&sb, "/*", enumeration.description, "*/")
       fmt.sbprintfln(&sb, "%v_%v :: enum {{", interface.name, enumeration.name)
-      for entry in enumeration.entries
-      {
+      for entry in enumeration.entries {
         fmt.sbprintfln(&sb, "\t%v = %v,", entry.name, entry.value)
       }
       fmt.sbprintln(&sb, "}")
     }
 
-    if len(interface.requests) > 0
-    {
+    if len(interface.requests) > 0 {
       requests_name := fmt.aprintf("%v_requests", interface.name)
       fmt.sbprintln(
         &sb,
@@ -623,8 +547,7 @@ generate_code :: proc(
       )
     }
 
-    if len(interface.events) > 0
-    {
+    if len(interface.events) > 0 {
       events_name := fmt.aprintf("%v_events", interface.name)
       fmt.sbprintln(
         &sb,
@@ -642,8 +565,7 @@ generate_code :: proc(
     "init_interfaces_%v :: proc \"contextless\" () {{",
     protocol.name,
   )
-  for interface in protocol.interfaces
-  {
+  for interface in protocol.interfaces {
     request_count := len(interface.requests)
     event_count := len(interface.events)
     fmt.sbprint(&sb, "\t")
@@ -671,16 +593,14 @@ generate_code :: proc(
       interface.name,
       event_count,
     )
-    if request_count > 0
-    {
+    if request_count > 0 {
       fmt.sbprintfln(
         &sb,
         "\t%v_interface.methods = raw_data(%[0]v_requests)",
         interface.name,
       )
     }
-    if event_count > 0
-    {
+    if event_count > 0 {
       fmt.sbprintfln(
         &sb,
         "\t%v_interface.events = raw_data(%[0]v_events)",
@@ -689,8 +609,7 @@ generate_code :: proc(
     }
   }
   fmt.sbprintln(&sb, "}")
-  if protocol.name == "wayland"
-  {
+  if protocol.name == "wayland" {
     fmt.sbprintln(&sb, "\n// Functions from libwayland-client")
     fmt.sbprintln(&sb, `import "core:c"`)
     fmt.sbprintln(&sb, `foreign import wl_lib "system:wayland-client"`)
@@ -743,17 +662,12 @@ foreign wl_lib {
    proxy_set_queue                           :: proc(p: ^proxy, queue: ^event_queue) ---
 }`,
     )
-  }
-   else
-  {
+  } else {
     fmt.sbprintln(&sb, "\n// Functions from libwayland-client")
     // resolve relative import to wayland base types
-    if wayland_dir == ""
-    {
+    if wayland_dir == "" {
       fmt.sbprintln(&sb, `import wl ".."`) // default
-    }
-     else
-    {
+    } else {
       output_dir := filepath.dir(output_path)
       output_dir_abs :=
         filepath.abs(output_dir, context.temp_allocator) or_else output_dir
@@ -763,8 +677,7 @@ foreign wl_lib {
       fmt.sbprintfln(&sb, `import wl "%s"`, rel_import)
     }
 
-    if emit_libwayland
-    {
+    if emit_libwayland {
       add_wl_name(&sb, "fixed_t")
       add_wl_name(&sb, "proxy")
       add_wl_name(&sb, "message")
@@ -789,12 +702,9 @@ generate_types :: proc(
   sb: ^strings.Builder,
   procedures: []Procedure,
   protocol: Protocol,
-)
-{
-  for &procedure in procedures
-  {
-    if procedure.all_null
-    {
+) {
+  for &procedure in procedures {
+    if procedure.all_null {
       procedure.type_index = 0
       continue
     }
@@ -804,32 +714,24 @@ generate_types :: proc(
       len(procedure.args) if procedure.ret == nil else len(procedure.args) + 1
     type_index += arg_length
 
-    if procedure.ret != nil
-    {
+    if procedure.ret != nil {
       fmt.sbprintfln(sb, "\t&%v_interface,", procedure.ret.?.interface_name)
     }
-    for arg in procedure.args
-    {
+    for arg in procedure.args {
       if (arg.type == .New_Id || arg.type == .Object) &&
-         arg.interface_name != ""
-      {
+         arg.interface_name != "" {
         fmt.sbprintfln(sb, "\t&%v_interface,", arg.interface_name)
-      }
-       else
-      {
+      } else {
         fmt.sbprintln(sb, "\tnil,")
       }
     }
   }
 }
-add_wl_name :: proc(sb: ^strings.Builder, func_name: string)
-{
+add_wl_name :: proc(sb: ^strings.Builder, func_name: string) {
   fmt.sbprintfln(sb, "%v :: wl.%[0]v", func_name)
 }
-main :: proc()
-{
-  options: struct
-  {
+main :: proc() {
+  options: struct {
     input:                string `args:"pos=0,required" usage:"Wayland xml protocol path."`,
     output:               string `args:"pos=1" usage:"Odin output path."`,
     package_name:         string `args:"pos=2" usage:"Package name for output code"`,
@@ -845,12 +747,9 @@ main :: proc()
     log.create_console_logger(opt = {}) if options.verbose else log.Logger{}
   protocol := parse_file(options.input)
   output_filename: string
-  if options.output != ""
-  {
+  if options.output != "" {
     output_filename = options.output
-  }
-   else
-  {
+  } else {
     output_filename = strings.concatenate(
       {filepath.stem(options.input), ".odin"},
     )
@@ -868,8 +767,7 @@ main :: proc()
     !options.dont_emit_libwayland,
   )
   if error := os.write_entire_file(output_filename, transmute([]u8)code);
-     error != os.General_Error.None
-  {
+     error != os.General_Error.None {
     fmt.println(
       "There was an error outputting to the file:",
       os.error_string(error),
